@@ -4,110 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Spectrum Data Viewer</title>
+    <!-- Link to the external stylesheet -->
+    <link rel="stylesheet" href="/static/styles.css">
     <!-- Load Plotly from local static files -->
     <script src="/static/js/plotly.min.js"></script>
     <!-- Load Socket.IO from local static files -->
     <script src="/static/js/socket.io.min.js"></script>
-    <style>
-        /* Style for the main layout */
-        body {
-            display: flex;
-            margin: 0;
-            height: 100vh;
-            font-family: Arial, sans-serif;
-        }
-
-        /* Sidebar takes 1/10th of the screen */
-        .sidebar {
-            width: 10%;
-            background-color: #f4f4f4;
-            padding: 20px;
-            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
-        }
-
-        /* Style for the content area (graphs) */
-        .content {
-            width: 80%;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* Buttons and controls styling */
-        .sidebar button {
-            display: block;
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 10px;
-            background-color: #007BFF;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-
-        .sidebar button:hover {
-            background-color: #0056b3;
-        }
-
-        /* Style for the dark frame status text */
-        #dark-frame-text {
-            margin-top: 10px;
-            font-weight: bold;
-            color: #333;
-        }
-
-        /* Style for the graph and heatmap containers */
-        #graph, #heatmap {
-            margin-bottom: 20px;
-        }
-        
-        /* Text input styling */
-        .sidebar input[type="number"],
-        .sidebar input[type="text"] {
-            width: 100%;
-            padding: 8px;
-            margin-bottom: 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }    
-
-        /* Style for the dropdown (select box) */
-        .sidebar select {
-            width: 100%;
-            padding: 8px;
-            margin-bottom: 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            background-color: #f8f8f8;
-            font-size: 16px;
-            color: #333;
-            cursor: pointer;
-        }
-
-        .sidebar select:focus {
-            outline: none;
-            border-color: #007BFF;
-            box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
-        }
-
-        .sidebar select option {
-            padding: 10px;
-            background-color: white;
-            color: #333;
-        }        
-
-    </style>
 </head>
 <body>
     <!-- Sidebar for buttons and status -->
     <div class="sidebar">
         <h2>Controls</h2>
-        <button id="send-button">Record Dark Frame</button>
-        <button id="clear-dark-frame">Clear Dark Frame</button>
-        <div id="dark-frame-text">Dark Frame Status: N/A</div>
-        <br/>
-        <!-- Input text box to send data -->
+
+        <label for="input-frequency">Frequency (Hz)</label>
+        <div class="frequency-container">
+            <input type="number" id="input-frequency" min="0" max="1766000000" step="1" placeholder="1420405000" value="1420405000">
+            <button id="reset-frequency-button">H</button>
+        </div>   
 
         <label for="rtlsdr_sample_rate">Bandwidth (MHz)</label>
         <select id="rtlsdr_sample_rate">
@@ -118,14 +31,26 @@
             <option value="2.4" {% if sample_rate == 2.4 %}selected{% endif %}>2.4</option>
             <option value="2.56" {% if sample_rate == 2.56 %}selected{% endif %}>2.56</option>
         </select>
-        
+
         <label for="rtlsdr_gain">Gain</label>
-        <input type="range" id="rtlsdr_gain" name="rtlsdr_gain" min="0" max="48" value="48" step="1" oninput="this.nextElementSibling.value = this.value">
-        <output>48</output>
+        <div class="gain-container">
+            <input type="range" id="rtlsdr_gain" name="rtlsdr_gain" min="0" max="48" value="48" step="1" oninput="this.nextElementSibling.value = this.value">
+            <output>48</output>
+        </div>
         
-        
+        <div class="checkbox-container">
+            <label for="bias-tee-checkbox" class="checkbox-label">Bias Tee</label>
+            <input type="checkbox" id="bias-tee-checkbox" class="styled-checkbox" {% if default_bias_tee %}checked{% endif %}>
+        </div>
+       
         <label for="input-integration_time">Integration Minutes</label>
         <input type="number" id="input-integration_time" min="0" max="60" step="0.1" placeholder="Integration Minutes" value="{{ integration_minutes }}">
+
+        <br/>
+
+        <button id="send-button">Record Dark Frame</button>
+        <button id="clear-dark-frame">Clear Dark Frame</button>
+        <div id="dark-frame-text">Dark Frame Status: N/A</div>
 
 
     </div>
@@ -138,12 +63,53 @@
     </div>
 
     <script>
+    
+        // Initialize the scatter plot only once
+        Plotly.newPlot('graph', [{
+            x: [],
+            y: [],
+            mode: 'lines',  // or 'markers' or 'lines+markers'
+            type: 'scatter'
+        }], {
+            xaxis: { 
+                title: 'Frequency', 
+                tickformat: '~s',  // Use SI units with automatic scaling (this will show G for gigahertz)
+                exponentformat: 'none'  // Avoid scientific notation
+            },
+            yaxis: { title: 'Amplitude' },
+        });
+        
+        // Initialize a buffer for z_data (waterfall buffer)
+        const buffer_size = 100;  // Number of rows in the heatmap (i.e., time slices)
+        let z_data = [];
+
+        // Initialize the heatmap plot with an empty z_data
+        Plotly.newPlot('heatmap', [{
+            z: z_data,
+            x: [],
+            type: 'heatmap',
+            colorscale: 'Viridis',
+            showscale: false
+        }], {
+            xaxis: { 
+                title: 'Frequency', 
+                tickformat: '~s',  // Use SI units with automatic scaling (this will show G for gigahertz)
+                exponentformat: 'none'  // Avoid scientific notation
+            },
+            yaxis: { title: 'Time' },
+
+        });    
+    
+    
         // Connect to WebSocket (Socket.IO running locally)
         const socket = io();
 
         // Handle WebSocket messages with spectrum data
         socket.on('spectrum_data', function(data) {
-            const x = data.x_data;
+                    
+            const center_freq = data.center_freq
+            // Add center_freq to each value in x_data to center around the frequency
+            const x = data.x_data.map(value => value + center_freq);
             const y = data.y_data;
             const dark_frame_status = data.dark_frame_status;
 
@@ -153,25 +119,42 @@
                 y: y,
                 type: 'scatter'
             }];
-
-            Plotly.react('graph', scatterData, {
-                title: 'Real-Time Spectrum',
-                xaxis: { title: 'Frequency (Hz)' },
-                yaxis: { title: 'Amplitude' }
+            
+            // Update the existing scatter plot with new data (replace the old data)
+            Plotly.restyle('graph', {
+                x: [x],  // New x data
+                y: [y]   // New y data
+            }, [0]);  // [0] is the trace index to update
+            
+            // Dynamically update the X-axis range based on the new data
+            Plotly.relayout('graph', {
+                'xaxis.range': [Math.min(...x), Math.max(...x)]  // Adjust x-axis to fit the new data
             });
+            
+            
+            // Dynamically initialize z_data with -80 if it's empty (first time the data is received)
+            if (z_data.length === 0) {
+                const data_points_per_row = y.length;  // Dynamically get the number of data points
+                z_data = Array(buffer_size).fill().map(() => Array(data_points_per_row).fill(-80));
+            }
+        
+            // Add the new row to z_data (waterfall buffer)
+            z_data.push(y);
+            
+            // Ensure the buffer doesn't exceed the buffer size
+            if (z_data.length > buffer_size) {
+                z_data.shift();  // Remove the oldest row if buffer exceeds size
+            }
 
-            // Update the heatmap
-            const z_data = [y];  // Use the same y_data for simplicity in this example
-            const heatmapData = [{
-                z: z_data,
-                type: 'heatmap',
-                colorscale: 'Viridis'
-            }];
-
-            Plotly.react('heatmap', heatmapData, {
-                title: 'Spectrum Heatmap',
-                xaxis: { title: 'Frequency (Hz)' },
-                yaxis: { title: 'Time' }
+            // Update the heatmap plot with the new z_data (waterfall effect)
+            Plotly.update('heatmap', {
+                z: [z_data],
+                x: [x]
+            });
+            
+            // Dynamically update the X-axis range of the heatmap based on the new data
+            Plotly.relayout('heatmap', {
+                'xaxis.range': [Math.min(...x), Math.max(...x)]  // Adjust x-axis to fit the new data
             });
 
             // Update the dark frame text in the div
@@ -187,29 +170,44 @@
             socket.emit('button_clicked', { command: 'clear_dark_frame_clicked' });
         });
         
-        
-       
         // Attach the input event listener to both input-number-1 and input-number-2
         document.getElementById('input-integration_time').addEventListener('input', function() {
-            let payload = {};
-            const integrationMinutes = this.value;
-            payload.integration_minutes = parseFloat(integrationMinutes);
+            let payload = { integration_minutes: parseFloat(this.value) };
             socket.emit('buffer_settings', payload);
         });        
         
         // Handle the float dropdown menu for real-time sending on change
         document.getElementById('rtlsdr_sample_rate').addEventListener('change', function() {
-            let payload = {};
-            payload.rtlsdr_sample_rate = parseFloat(this.value);
+            let payload = { rtlsdr_sample_rate: parseFloat(this.value) };
             socket.emit('rtlsdr_settings', payload);
         });
         
         // Handle the range slider for real-time sending on change
         document.getElementById('rtlsdr_gain').addEventListener('input', function() {
-            let payload = {};
-            payload.rtlsdr_gain = parseInt(this.value);
+            let payload = { rtlsdr_gain: parseInt(this.value) };
             socket.emit('rtlsdr_settings', payload);
         });        
+        
+        document.getElementById('input-frequency').addEventListener('input', function() {
+            let payload = { rtlsdr_frequency: parseFloat(this.value) };
+            socket.emit('rtlsdr_settings', payload);
+        });
+        
+        const default_frequency = 1420405000;
+
+        // Reset the frequency input value when the 'H' button is clicked
+        document.getElementById('reset-frequency-button').addEventListener('click', function() {
+            document.getElementById('input-frequency').value = default_frequency;
+            let payload = { rtlsdr_frequency: parseFloat(default_frequency) };
+            socket.emit('rtlsdr_settings', payload);
+        });        
+        
+        // Handle the bias tee checkbox for real-time sending on change
+        document.getElementById('bias-tee-checkbox').addEventListener('change', function() {
+            let payload = { bias_tee_enabled: this.checked };
+            socket.emit('rtlsdr_settings', payload);
+        });
+
         
         
         

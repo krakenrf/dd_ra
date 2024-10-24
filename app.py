@@ -21,6 +21,7 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 from scipy.interpolate import UnivariateSpline
 from scipy.interpolate import interp1d
+import msgpack
 
 manager = Manager()
 shared_data = manager.dict()
@@ -37,7 +38,9 @@ sdr = RtlSdr()
 sdr.sample_rate = 2.56e6  # 2.048 MSPS
 sdr.center_freq = 1420.405e6   # 1.42 GHz center frequency
 sdr.gain = 48          # Automatic gain control
-sdr.bias_tee = True
+shared_data['sdr_bias_tee'] = True
+sdr.set_bias_tee(shared_data['sdr_bias_tee'])
+#sdr.blah = True
 
 # Number of samples per read and sliding window size
 num_samples = 1 * 1024
@@ -52,6 +55,7 @@ shared_data['process_settings_state'] = "Nothing"
 shared_data['update_rtlsdr_settings_state'] = "Nothing"
 shared_data['sdr_sample_rate'] = sdr.sample_rate
 shared_data['sdr_gain'] = sdr.gain
+shared_data['sdr_frequency'] = sdr.center_freq
 
 gain = 1
 decimation_factor = 2  # Decimation factor to reduce the sampling rate
@@ -61,14 +65,10 @@ nperseg = num_samples * 2 // decimation_factor  # Set nperseg to any value you w
 fft_size = num_samples * 1  # Zero-pad to increase FFT resolution
 x_data = np.linspace(-sdr.sample_rate / (2 * decimation_factor), sdr.sample_rate / (2 * decimation_factor), nperseg)
 
-
-
 # Multiprocessing queue to hold incoming samples for processing
 sample_queue = mp.Queue(maxsize=1024)
-matrix_sample_queue = mp.Queue(maxsize=64)
-plot_queue = mp.Queue(maxsize=32)  # Queue to send data to the plotter
-
-
+matrix_sample_queue = mp.Queue(maxsize=8)
+plot_queue = mp.Queue(maxsize=4)  # Queue to send data to the plotter
 
 # Callback function to collect the samples
 def callback(samples, context):
@@ -182,33 +182,40 @@ def process_samples(matrix_sample_queue):
         
 
         intermediate_avg = 10 * np.log10(intermediate_avg + 1e-5)
-        intermediate_avg *= gain # TODO: Test without gain using subtraction dark frame method
+        #intermediate_avg *= gain # TODO: Test without gain using subtraction dark frame method
 
         # Remove Peaks
         window_size = 32
         step_size = 2
         num_points = len(intermediate_avg)
         
-        for start in range(0, num_points - window_size + 1, step_size):
+        # Precompute the number of iterations
+        num_iterations = (num_points - window_size) // step_size + 1
 
-            # Define the end of the current window
-            end = start + window_size
+        for start in range(num_iterations):
+            
+            # Define the start and end of the current window
+            actual_start = start * step_size
+            end = actual_start + window_size
 
-            intermediate_avg_slice = intermediate_avg[start:end]
+            # Slice the array for the current window
+            intermediate_avg_slice = intermediate_avg[actual_start:end]
 
+            # Calculate the median and threshold for this slice
             med_slice = np.median(intermediate_avg_slice)
-            threshold = 1.1 * med_slice  # Set threshold as 10% of the maximum magnitude
+            threshold = 1.1 * med_slice  # Set threshold as 10% above the median
 
-            #mean_spec = np.median(Pxx_dB)
-            #for i in range(10):
+            # Find peaks and modify only peak values in the slice
             peaks, properties = find_peaks(intermediate_avg_slice, height=threshold, prominence=0.3)
-            #print(peaks)
-            intermediate_avg_slice[peaks] = med_slice
-                
-            # Put the modified slice back into the original spectrum
-            intermediate_avg[start:end] = intermediate_avg_slice
 
-        intermediate_avg = median_filter(intermediate_avg, size=3)
+            if peaks.size > 0:
+                # Only update the peak values with the median value
+                intermediate_avg_slice[peaks] = med_slice
+
+            # Directly update the relevant slice in the original array
+            intermediate_avg[actual_start:end] = intermediate_avg_slice
+
+        #intermediate_avg = median_filter(intermediate_avg, size=3)
 
 
         cumulate_buffer.append(intermediate_avg)
@@ -243,7 +250,7 @@ def process_samples(matrix_sample_queue):
 
             case "Complete":
                 avg_spectrum = avg_spectrum - dark_frame  # Subtraction dark frame
-                    # avg_spectrum = avg_spectrum / dark_frame  # Division dark frame
+                # avg_spectrum = avg_spectrum / dark_frame  # Division dark frame
 
         # Send the result to the plotting queue
         try:
@@ -285,16 +292,31 @@ def sdr_process():
             clear_queue(plot_queue)
             sdr = RtlSdr()
             sdr.sample_rate = shared_data['sdr_sample_rate']
-            sdr.center_freq = 1420.405e6
+            sdr.center_freq = shared_data['sdr_frequency']
             sdr.gain = shared_data['sdr_gain']
-            sdr.bias_tee = True
+            sdr.set_bias_tee(shared_data['sdr_bias_tee'])
             
         if shared_data['update_rtlsdr_settings_state'] == "update_gain":
             sdr.gain = shared_data['sdr_gain']
+            
+        if shared_data['update_rtlsdr_settings_state'] == "update_bias_tee":
+            sdr.set_bias_tee(shared_data['sdr_bias_tee'])
+            print(shared_data['sdr_bias_tee'])
+            
+        if shared_data['update_rtlsdr_settings_state'] == "update_freq":
+            update_freq = shared_data['sdr_frequency']
+
+            if shared_data['sdr_frequency'] < 24000000:
+                update_freq = 24000000
+            elif shared_data['sdr_frequency'] > 1766000000:  
+                update_freq = 1766000000
+
+            sdr.center_freq = update_freq
+            shared_data['process_settings_state'] = "update_cumulate_buffer"
 
         shared_data['update_rtlsdr_settings_state'] = "Nothing"
             
-        time.sleep(1)  # Check for updates every second
+        time.sleep(0.1)  # Check for updates every 100ms
 
 
 def clear_queue(q):
@@ -326,9 +348,14 @@ processing_proc.start()
 # Serve the HTML page
 @app.route('/')
 def index():
+    default_frequency = shared_data['sdr_frequency']
     integration_minutes = shared_data['integration_minutes']
     sample_rate = shared_data['sdr_sample_rate'] / 10**6
-    return render_template('index.html', integration_minutes=integration_minutes, sample_rate=sample_rate)
+    default_bias_tee = shared_data['sdr_bias_tee']
+    return render_template('index.html', integration_minutes=integration_minutes, 
+                                         sample_rate=sample_rate, 
+                                         default_frequency=default_frequency, 
+                                         default_bias_tee=default_bias_tee)
 
 # WebSocket handler to send random data
 @socketio.on('connect')
@@ -341,7 +368,11 @@ def handle_connect():
                 # Non-blocking attempt to get data
                 y_data = plot_queue.get_nowait()
                 x_data = np.linspace(-shared_data['sdr_sample_rate'] / (2 * decimation_factor), shared_data['sdr_sample_rate'] / (2 * decimation_factor), nperseg)
-                socketio.emit('spectrum_data', {'x_data': x_data.tolist(), 'y_data': y_data.tolist(), 'dark_frame_status': shared_data['dark_frame_status']}) 
+                
+                socketio.emit('spectrum_data', {'x_data': x_data.tolist(), 
+                                                'y_data': y_data.tolist(), 
+                                                'dark_frame_status': shared_data['dark_frame_status'],
+                                                'center_freq': shared_data['sdr_frequency']}) 
             except queue.Empty:
                 # No data available, sleep briefly to yield control back to the event loop
                 socketio.sleep(0.01)  # Yield control for 10 milliseconds
@@ -397,7 +428,13 @@ def handle_core_settings(message):
             shared_data['update_rtlsdr_settings_state'] = "update_gain"
             #print("TEST")
             
-        
+        if 'rtlsdr_frequency' in message:
+            shared_data['sdr_frequency'] = float(message.get('rtlsdr_frequency'))
+            shared_data['update_rtlsdr_settings_state'] = "update_freq"
+            
+        if 'bias_tee_enabled' in message:
+            shared_data['sdr_bias_tee'] = bool(message.get('bias_tee_enabled'))
+            shared_data['update_rtlsdr_settings_state'] = "update_bias_tee"
         
         # Respond back to the client
         emit('server_response', {'response': 'Input received and processed'})
