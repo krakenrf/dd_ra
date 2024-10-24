@@ -51,6 +51,7 @@ shared_data['process_settings_state'] = "Nothing"
 
 shared_data['update_rtlsdr_settings_state'] = "Nothing"
 shared_data['sdr_sample_rate'] = sdr.sample_rate
+shared_data['sdr_gain'] = sdr.gain
 
 gain = 1
 decimation_factor = 2  # Decimation factor to reduce the sampling rate
@@ -124,12 +125,12 @@ def process_samples(matrix_sample_queue):
                 cumulate_buffer = deque(maxlen=num_cumulative_avg)
                 shared_data['process_settings_state'] = "Nothing"
                 
-        print(shared_data['sdr_sample_rate'])
+        #print(shared_data['sdr_sample_rate'])
         # Perform intermediate averaging in a for loop
         #intermediate_buffer = None
         intermediate_avg_count = 0
         
-        print(num_cumulative_avg)
+        #print(num_cumulative_avg)
         
         start_time = time.time()
         samples_matrix = matrix_sample_queue.get()
@@ -218,10 +219,13 @@ def process_samples(matrix_sample_queue):
         else:
             avg_spectrum = intermediate_avg
             
-        print(f"y_data shape: {avg_spectrum.shape}")
-            
-            
+
         match shared_data['dark_frame_state']:
+            case "Initial":
+                dark_frame_counter = 0
+                dark_frame = None
+                shared_data['dark_frame_status'] = "Dark Frame Empty"
+        
             case "Start Record":
                 dark_frame_counter = 0
                 dark_frame = None
@@ -274,19 +278,21 @@ def sdr_process():
             sdr.cancel_read_async()  # Stop async reading
             async_thread.join()
             async_started = False  # Reset flag
+            # Update SDR settings
+            sdr.close()
             clear_queue(sample_queue)
             clear_queue(matrix_sample_queue)
             clear_queue(plot_queue)
-
-            # Update SDR settings
-            sdr.close()
             sdr = RtlSdr()
             sdr.sample_rate = shared_data['sdr_sample_rate']
             sdr.center_freq = 1420.405e6
-            sdr.gain = 48
+            sdr.gain = shared_data['sdr_gain']
             sdr.bias_tee = True
+            
+        if shared_data['update_rtlsdr_settings_state'] == "update_gain":
+            sdr.gain = shared_data['sdr_gain']
 
-            shared_data['update_rtlsdr_settings_state'] = "Nothing"
+        shared_data['update_rtlsdr_settings_state'] = "Nothing"
             
         time.sleep(1)  # Check for updates every second
 
@@ -321,7 +327,8 @@ processing_proc.start()
 @app.route('/')
 def index():
     integration_minutes = shared_data['integration_minutes']
-    return render_template('index.html', integration_minutes=integration_minutes)
+    sample_rate = shared_data['sdr_sample_rate'] / 10**6
+    return render_template('index.html', integration_minutes=integration_minutes, sample_rate=sample_rate)
 
 # WebSocket handler to send random data
 @socketio.on('connect')
@@ -337,7 +344,7 @@ def handle_connect():
                 socketio.emit('spectrum_data', {'x_data': x_data.tolist(), 'y_data': y_data.tolist(), 'dark_frame_status': shared_data['dark_frame_status']}) 
             except queue.Empty:
                 # No data available, sleep briefly to yield control back to the event loop
-                socketio.sleep(0.1)  # Yield control for 100 milliseconds
+                socketio.sleep(0.01)  # Yield control for 10 milliseconds
                 continue
                 
                
@@ -382,9 +389,15 @@ def handle_core_settings(message):
         if 'rtlsdr_sample_rate' in message:
             sample_rate = float(message.get('rtlsdr_sample_rate'))
             print(f"User input (sample_rate) received: {sample_rate}")
-
-        shared_data['sdr_sample_rate'] = sample_rate * 10**6
-        shared_data['update_rtlsdr_settings_state'] = "Update"
+            shared_data['sdr_sample_rate'] = sample_rate * 10**6
+            shared_data['update_rtlsdr_settings_state'] = "Update"
+            
+        if 'rtlsdr_gain' in message:
+            shared_data['sdr_gain'] = float(message.get('rtlsdr_gain'))
+            shared_data['update_rtlsdr_settings_state'] = "update_gain"
+            #print("TEST")
+            
+        
         
         # Respond back to the client
         emit('server_response', {'response': 'Input received and processed'})

@@ -70,6 +70,31 @@
             margin-bottom: 10px;
             border: 1px solid #ccc;
             border-radius: 4px;
+        }    
+
+        /* Style for the dropdown (select box) */
+        .sidebar select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #f8f8f8;
+            font-size: 16px;
+            color: #333;
+            cursor: pointer;
+        }
+
+        .sidebar select:focus {
+            outline: none;
+            border-color: #007BFF;
+            box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
+        }
+
+        .sidebar select option {
+            padding: 10px;
+            background-color: white;
+            color: #333;
         }        
 
     </style>
@@ -81,16 +106,26 @@
         <button id="send-button">Record Dark Frame</button>
         <button id="clear-dark-frame">Clear Dark Frame</button>
         <div id="dark-frame-text">Dark Frame Status: N/A</div>
-        
+        <br/>
         <!-- Input text box to send data -->
-        <input type="number" id="input-integration_time" min="0" max="60" step="0.1" placeholder="Integration Minutes" value="{{ integration_minutes }}">
-        <label for="float-dropdown">Select a float value:</label>
+
+        <label for="rtlsdr_sample_rate">Bandwidth (MHz)</label>
         <select id="rtlsdr_sample_rate">
-            <option value="0.25">0.25</option>
-            <option value="1.024">1.024</option>
-            <option value="2.4">2.4</option>
-            <option value="2.56">2.56</option>
+            <option value="1.024" {% if sample_rate == 1.024 %}selected{% endif %}>1.024</option>
+            <option value="1.4" {% if sample_rate == 1.4 %}selected{% endif %}>1.4</option>
+            <option value="1.8" {% if sample_rate == 1.8 %}selected{% endif %}>1.8</option>
+            <option value="1.92" {% if sample_rate == 1.92 %}selected{% endif %}>1.92</option>
+            <option value="2.4" {% if sample_rate == 2.4 %}selected{% endif %}>2.4</option>
+            <option value="2.56" {% if sample_rate == 2.56 %}selected{% endif %}>2.56</option>
         </select>
+        
+        <label for="rtlsdr_gain">Gain</label>
+        <input type="range" id="rtlsdr_gain" name="rtlsdr_gain" min="0" max="48" value="48" step="1" oninput="this.nextElementSibling.value = this.value">
+        <output>48</output>
+        
+        
+        <label for="input-integration_time">Integration Minutes</label>
+        <input type="number" id="input-integration_time" min="0" max="60" step="0.1" placeholder="Integration Minutes" value="{{ integration_minutes }}">
 
 
     </div>
@@ -168,6 +203,14 @@
             payload.rtlsdr_sample_rate = parseFloat(this.value);
             socket.emit('rtlsdr_settings', payload);
         });
+        
+        // Handle the range slider for real-time sending on change
+        document.getElementById('rtlsdr_gain').addEventListener('input', function() {
+            let payload = {};
+            payload.rtlsdr_gain = parseInt(this.value);
+            socket.emit('rtlsdr_settings', payload);
+        });        
+        
         
         
         // Handle input text box for submission on Enter or blur
