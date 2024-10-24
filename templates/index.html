@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spectrum Data Viewer</title>
+    <!-- Load Plotly from local static files -->
+    <script src="/static/js/plotly.min.js"></script>
+    <!-- Load Socket.IO from local static files -->
+    <script src="/static/js/socket.io.min.js"></script>
+    <style>
+        /* Style for the main layout */
+        body {
+            display: flex;
+            margin: 0;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+
+        /* Sidebar takes 1/10th of the screen */
+        .sidebar {
+            width: 10%;
+            background-color: #f4f4f4;
+            padding: 20px;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Style for the content area (graphs) */
+        .content {
+            width: 80%;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Buttons and controls styling */
+        .sidebar button {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .sidebar button:hover {
+            background-color: #0056b3;
+        }
+
+        /* Style for the dark frame status text */
+        #dark-frame-text {
+            margin-top: 10px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        /* Style for the graph and heatmap containers */
+        #graph, #heatmap {
+            margin-bottom: 20px;
+        }
+        
+        /* Text input styling */
+        .sidebar input[type="number"],
+        .sidebar input[type="text"] {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }        
+
+    </style>
+</head>
+<body>
+    <!-- Sidebar for buttons and status -->
+    <div class="sidebar">
+        <h2>Controls</h2>
+        <button id="send-button">Record Dark Frame</button>
+        <button id="clear-dark-frame">Clear Dark Frame</button>
+        <div id="dark-frame-text">Dark Frame Status: N/A</div>
+        
+        <!-- Input text box to send data -->
+        <input type="number" id="input-integration_time" min="0" max="60" step="0.1" placeholder="Integration Minutes" value="{{ integration_minutes }}">
+        <label for="float-dropdown">Select a float value:</label>
+        <select id="rtlsdr_sample_rate">
+            <option value="0.25">0.25</option>
+            <option value="1.024">1.024</option>
+            <option value="2.4">2.4</option>
+            <option value="2.56">2.56</option>
+        </select>
+
+
+    </div>
+
+    <!-- Content area for graphs -->
+    <div class="content">
+        <h1>Spectrum Data Viewer</h1>
+        <div id="graph"></div>
+        <div id="heatmap"></div>
+    </div>
+
+    <script>
+        // Connect to WebSocket (Socket.IO running locally)
+        const socket = io();
+
+        // Handle WebSocket messages with spectrum data
+        socket.on('spectrum_data', function(data) {
+            const x = data.x_data;
+            const y = data.y_data;
+            const dark_frame_status = data.dark_frame_status;
+
+            // Update the scatter plot
+            const scatterData = [{
+                x: x,
+                y: y,
+                type: 'scatter'
+            }];
+
+            Plotly.react('graph', scatterData, {
+                title: 'Real-Time Spectrum',
+                xaxis: { title: 'Frequency (Hz)' },
+                yaxis: { title: 'Amplitude' }
+            });
+
+            // Update the heatmap
+            const z_data = [y];  // Use the same y_data for simplicity in this example
+            const heatmapData = [{
+                z: z_data,
+                type: 'heatmap',
+                colorscale: 'Viridis'
+            }];
+
+            Plotly.react('heatmap', heatmapData, {
+                title: 'Spectrum Heatmap',
+                xaxis: { title: 'Frequency (Hz)' },
+                yaxis: { title: 'Time' }
+            });
+
+            // Update the dark frame text in the div
+            document.getElementById("dark-frame-text").textContent = `Dark Frame Status: ${dark_frame_status}`;
+        });
+
+        // Handle button clicks and send WebSocket messages to the server
+        document.getElementById("send-button").addEventListener("click", function() {
+            socket.emit('button_clicked', { command: 'record_dark_frame_clicked' });
+        });
+
+        document.getElementById("clear-dark-frame").addEventListener("click", function() {
+            socket.emit('button_clicked', { command: 'clear_dark_frame_clicked' });
+        });
+        
+        
+       
+        // Attach the input event listener to both input-number-1 and input-number-2
+        document.getElementById('input-integration_time').addEventListener('input', function() {
+            let payload = {};
+            const integrationMinutes = this.value;
+            payload.integration_minutes = parseFloat(integrationMinutes);
+            socket.emit('buffer_settings', payload);
+        });        
+        
+        // Handle the float dropdown menu for real-time sending on change
+        document.getElementById('rtlsdr_sample_rate').addEventListener('change', function() {
+            let payload = {};
+            payload.rtlsdr_sample_rate = parseFloat(this.value);
+            socket.emit('rtlsdr_settings', payload);
+        });
+        
+        
+        // Handle input text box for submission on Enter or blur
+        //const input_integration_time = document.getElementById('input-integration_time');
+
+        // Listen for value change
+        //input_integration_time.addEventListener('input', function() {
+        //    socket.emit('input_text', { number: parseFloat(input_integration_time.value) });
+        //});
+
+
+
+        // Handle server response to the button click
+        socket.on('server_response', function(data) {
+            console.log("Server response:", data.response);
+        });
+    </script>
+</body>
+</html>
