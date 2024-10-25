@@ -34,8 +34,8 @@
 
         <label for="rtlsdr_gain">Gain</label>
         <div class="gain-container">
-            <input type="range" id="rtlsdr_gain" name="rtlsdr_gain" min="0" max="48" value="48" step="1" oninput="this.nextElementSibling.value = this.value">
-            <output>48</output>
+            <input type="range" id="rtlsdr_gain" name="rtlsdr_gain" min="0" max="50" value="50" step="1" oninput="this.nextElementSibling.value = this.value">
+            <output>50</output>
         </div>
         
         <div class="checkbox-container">
@@ -45,6 +45,22 @@
        
         <label for="input-integration_time">Integration Minutes</label>
         <input type="number" id="input-integration_time" min="0" max="60" step="0.1" placeholder="Integration Minutes" value="{{ integration_minutes }}">
+
+        <div class="checkbox-container">
+            <label for="remove-peaks-checkbox" class="checkbox-label">Remove Peaks</label>
+            <input type="checkbox" id="remove-peaks-checkbox" class="styled-checkbox" {% if default_remove_peaks %}checked{% endif %}>
+        </div>
+        
+        <div class="checkbox-container">
+            <label for="plot-peaks-checkbox" class="checkbox-label">Plot Peaks</label>
+            <input type="checkbox" id="plot-peaks-checkbox" class="styled-checkbox" {% if default_plot_peaks %}checked{% endif %}>
+        </div>
+        
+        <div class="checkbox-container">
+            <label for="median-smoothing-checkbox" class="checkbox-label">Median Smoothing</label>
+            <input type="checkbox" id="median-smoothing-checkbox" class="styled-checkbox" {% if default_median_smoothing %}checked{% endif %}>
+        </div>        
+
 
         <br/>
 
@@ -70,6 +86,16 @@
             y: [],
             mode: 'lines',  // or 'markers' or 'lines+markers'
             type: 'scatter'
+        }, {
+            x: [],  // Empty data for peaks initially
+            y: [],
+            mode: 'markers',  // Peaks will be plotted as markers
+            marker: {
+                size: 6,  // Small circles for the peaks
+                symbol: 'circle',
+                color: 'red'
+            },
+            name: 'Peaks'  // Label for the peaks trace
         }], {
             xaxis: { 
                 title: 'Frequency', 
@@ -112,6 +138,11 @@
             const x = data.x_data.map(value => value + center_freq);
             const y = data.y_data;
             const dark_frame_status = data.dark_frame_status;
+            
+            
+            const peaks_x = data.peaks_x.map(value => value + center_freq); // x-values of the peaks
+            const peaks_y = data.peaks_y; // y-values (amplitudes) of the peaks
+
 
             // Update the scatter plot
             const scatterData = [{
@@ -119,12 +150,34 @@
                 y: y,
                 type: 'scatter'
             }];
-            
+
             // Update the existing scatter plot with new data (replace the old data)
             Plotly.restyle('graph', {
                 x: [x],  // New x data
                 y: [y]   // New y data
             }, [0]);  // [0] is the trace index to update
+            
+            // Use Plotly.restyle() instead of adding new traces to avoid duplication
+            if (peaks_x.length > 0 && peaks_y.length > 0) {
+                Plotly.restyle('graph', {
+                    x: [peaks_x],  // Frequencies at the peaks
+                    y: [peaks_y],  // Amplitudes at the peaks
+                    marker: {
+                        size: 6,  // Small circles
+                        symbol: 'circle',
+                        color: 'red'
+                    },
+                    visible: true
+                }, [1]);  // [1] is the trace index for the peaks (assuming it's the second trace)
+            }
+            else
+            {
+                // Hide the trace when there are no peaks
+                Plotly.restyle('graph', {
+                    visible: false  // Hide the trace
+                }, [1]);  // [1] is the trace index for the peaks
+            }
+            
             
             // Dynamically update the X-axis range based on the new data
             Plotly.relayout('graph', {
@@ -173,7 +226,7 @@
         // Attach the input event listener to both input-number-1 and input-number-2
         document.getElementById('input-integration_time').addEventListener('input', function() {
             let payload = { integration_minutes: parseFloat(this.value) };
-            socket.emit('buffer_settings', payload);
+            socket.emit('program_settings', payload);
         });        
         
         // Handle the float dropdown menu for real-time sending on change
@@ -207,9 +260,31 @@
             let payload = { bias_tee_enabled: this.checked };
             socket.emit('rtlsdr_settings', payload);
         });
+        
+        
+        // Handle the bias tee checkbox for real-time sending on change
+        document.getElementById('remove-peaks-checkbox').addEventListener('change', function() {
+            let payload = { remove_peaks_enabled: this.checked };
+            socket.emit('program_settings', payload);
+        });
+        
+        // Handle the bias tee checkbox for real-time sending on change
+        document.getElementById('plot-peaks-checkbox').addEventListener('change', function() {
+            let payload = { plot_peaks_enabled: this.checked };
+            socket.emit('program_settings', payload);
+        });
+        
+        // Handle the bias tee checkbox for real-time sending on change
+        document.getElementById('median-smoothing-checkbox').addEventListener('change', function() {
+            let payload = { median_smoothing_enabled: this.checked };
+            socket.emit('program_settings', payload);
+        });        
 
         
-        
+        window.addEventListener('resize', function() {
+            Plotly.Plots.resize('graph');
+            Plotly.Plots.resize('heatmap');
+        });
         
         // Handle input text box for submission on Enter or blur
         //const input_integration_time = document.getElementById('input-integration_time');
@@ -218,7 +293,6 @@
         //input_integration_time.addEventListener('input', function() {
         //    socket.emit('input_text', { number: parseFloat(input_integration_time.value) });
         //});
-
 
 
         // Handle server response to the button click

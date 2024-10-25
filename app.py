@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.fft import fft, fftfreq
 from scipy.ndimage import median_filter, gaussian_filter
-from scipy.signal import windows, decimate, find_peaks, welch, butter, sosfilt
+from scipy.signal import windows, decimate, find_peaks, welch, butter, sosfilt, peak_widths
 from rtlsdr import RtlSdr
 from collections import deque
 from matplotlib.animation import FuncAnimation
@@ -37,9 +37,12 @@ sdr = RtlSdr()
 # Configure SDR parameters
 sdr.sample_rate = 2.56e6  # 2.048 MSPS
 sdr.center_freq = 1420.405e6   # 1.42 GHz center frequency
-sdr.gain = 48          # Automatic gain control
+sdr.gain = 50          # Automatic gain control
 shared_data['sdr_bias_tee'] = True
 sdr.set_bias_tee(shared_data['sdr_bias_tee'])
+shared_data['remove_peaks'] = True
+shared_data['plot_peaks'] = False
+shared_data['median_smoothing'] = False
 #sdr.blah = True
 
 # Number of samples per read and sliding window size
@@ -58,8 +61,8 @@ shared_data['sdr_gain'] = sdr.gain
 shared_data['sdr_frequency'] = sdr.center_freq
 
 gain = 1
-decimation_factor = 2  # Decimation factor to reduce the sampling rate
-nperseg = num_samples * 2 // decimation_factor  # Set nperseg to any value you want
+decimation_factor = 1  # Decimation factor to reduce the sampling rate
+nperseg = num_samples // decimation_factor  # Set nperseg to any value you want
 
 # Define FFT size for zero-padding to increase resolution
 fft_size = num_samples * 1  # Zero-pad to increase FFT resolution
@@ -69,6 +72,8 @@ x_data = np.linspace(-sdr.sample_rate / (2 * decimation_factor), sdr.sample_rate
 sample_queue = mp.Queue(maxsize=1024)
 matrix_sample_queue = mp.Queue(maxsize=8)
 plot_queue = mp.Queue(maxsize=4)  # Queue to send data to the plotter
+peaks_x_queue = mp.Queue(maxsize=4)  # Queue to send data to the plotter
+peaks_y_queue = mp.Queue(maxsize=4)  # Queue to send data to the plotter
 
 # Callback function to collect the samples
 def callback(samples, context):
@@ -186,37 +191,51 @@ def process_samples(matrix_sample_queue):
 
         # Remove Peaks
         window_size = 32
-        step_size = 2
+        step_size = 1
         num_points = len(intermediate_avg)
         
-        # Precompute the number of iterations
-        num_iterations = (num_points - window_size) // step_size + 1
+        
+        # total_peaks_x = []
+        # total_peaks_y = []
 
-        for start in range(num_iterations):
-            
-            # Define the start and end of the current window
-            actual_start = start * step_size
-            end = actual_start + window_size
+        # if(shared_data['remove_peaks']):
+            # # # Precompute the number of iterations
+            # num_iterations = (num_points - window_size) // step_size + 1
 
-            # Slice the array for the current window
-            intermediate_avg_slice = intermediate_avg[actual_start:end]
+            # for start in range(num_iterations):
+                
+                # # Define the start and end of the current window
+                # actual_start = start * step_size
+                # end = actual_start + window_size
 
-            # Calculate the median and threshold for this slice
-            med_slice = np.median(intermediate_avg_slice)
-            threshold = 1.1 * med_slice  # Set threshold as 10% above the median
+                # # Slice the array for the current window
+                # intermediate_avg_slice = intermediate_avg[actual_start:end]
 
-            # Find peaks and modify only peak values in the slice
-            peaks, properties = find_peaks(intermediate_avg_slice, height=threshold, prominence=0.3)
+                # # Calculate the median and threshold for this slice
+                # med_slice = np.median(intermediate_avg_slice)
+                # threshold = 1.01 * med_slice  # Set threshold as 10% above the median
 
-            if peaks.size > 0:
-                # Only update the peak values with the median value
-                intermediate_avg_slice[peaks] = med_slice
+                # # Find peaks in the current slice
+                # peaks, properties = find_peaks(intermediate_avg_slice, height=threshold, prominence=0.5)
 
-            # Directly update the relevant slice in the original array
-            intermediate_avg[actual_start:end] = intermediate_avg_slice
+                # if peaks.size > 0:
+                    # # Append the actual positions of the peaks in the total array
+                    # total_peaks_x.extend(actual_start + peaks)
+                    # total_peaks_y.extend(intermediate_avg_slice[peaks])
 
-        #intermediate_avg = median_filter(intermediate_avg, size=3)
+                    # for peak in peaks:
+                        # # Define the range to apply the median value (peak, peak-1, and peak+1)
+                        # start = max(0, peak - 2)  # Ensure it doesn't go below index 0
+                        # end = min(len(intermediate_avg_slice), peak + 3)  # Ensure it doesn't exceed the array length
+                        
+                        # # Apply the median value to the peak and its neighboring points
+                        # intermediate_avg_slice[start:end] = med_slice
 
+                # # Directly update the relevant slice in the original array
+                # #intermediate_avg[actual_start:end] = intermediate_avg_slice
+              
+        # total_peaks_x = np.array(total_peaks_x)
+        # total_peaks_y = np.array(total_peaks_y)    
 
         cumulate_buffer.append(intermediate_avg)
 
@@ -225,6 +244,55 @@ def process_samples(matrix_sample_queue):
             avg_spectrum = np.mean(cumulate_buffer, axis=0)
         else:
             avg_spectrum = intermediate_avg
+            
+        total_peaks_x = []
+        total_peaks_y = []
+
+        if(shared_data['remove_peaks'] or shared_data['plot_peaks']):
+            # Precompute the number of iterations
+            num_iterations = (num_points - window_size) // step_size + 1
+
+            for start in range(num_iterations):
+                
+                # Define the start and end of the current window
+                actual_start = start * step_size
+                end = actual_start + window_size
+
+                # Slice the array for the current window
+                intermediate_avg_slice = avg_spectrum[actual_start:end]
+
+                # Calculate the median and threshold for this slice
+                med_slice = np.median(intermediate_avg_slice)
+                threshold = 1.01 * med_slice  # Set threshold as 10% above the median
+
+                # Find peaks in the current slice
+                peaks, properties = find_peaks(intermediate_avg_slice, height=threshold, prominence=0.5)
+
+                if peaks.size > 0:
+                    # Append the actual positions of the peaks in the total array
+                    if shared_data['plot_peaks']:
+                        total_peaks_x.extend(actual_start + peaks)
+                        total_peaks_y.extend(intermediate_avg_slice[peaks])
+
+                    if shared_data['remove_peaks']:
+                        for peak in peaks:
+                            # Define the range to apply the median value (peak, peak-1, and peak+1)
+                            start = max(0, peak - 2)  # Ensure it doesn't go below index 0
+                            end = min(len(intermediate_avg_slice), peak + 3)  # Ensure it doesn't exceed the array length
+                            
+                            # Apply the median value to the peak and its neighboring points
+                            intermediate_avg_slice[start:end] = med_slice
+
+                # Directly update the relevant slice in the original array
+                #intermediate_avg[actual_start:end] = intermediate_avg_slice # Don't need this, it automatically  works
+              
+        total_peaks_x = np.array(total_peaks_x)
+        total_peaks_y = np.array(total_peaks_y)              
+            
+        # Enable median smoothing    
+        if shared_data['median_smoothing']:
+            avg_spectrum = median_filter(avg_spectrum, size=3) 
+        
             
 
         match shared_data['dark_frame_state']:
@@ -250,11 +318,18 @@ def process_samples(matrix_sample_queue):
 
             case "Complete":
                 avg_spectrum = avg_spectrum - dark_frame  # Subtraction dark frame
-                # avg_spectrum = avg_spectrum / dark_frame  # Division dark frame
+                #avg_spectrum = avg_spectrum / dark_frame  # Division dark frame
+
+                
+        spectrum_mean = np.mean(avg_spectrum)
+        avg_spectrum = avg_spectrum - spectrum_mean
+        total_peaks_y = total_peaks_y - spectrum_mean
 
         # Send the result to the plotting queue
         try:
             plot_queue.put(avg_spectrum, block=False)
+            peaks_x_queue.put(total_peaks_x, block=False)
+            peaks_y_queue.put(total_peaks_y, block=False)
         except queue.Full:
             print("dropping plot")
             pass
@@ -352,10 +427,16 @@ def index():
     integration_minutes = shared_data['integration_minutes']
     sample_rate = shared_data['sdr_sample_rate'] / 10**6
     default_bias_tee = shared_data['sdr_bias_tee']
+    default_remove_peaks = shared_data['remove_peaks']
+    default_plot_peaks = shared_data['plot_peaks']
+    default_median_smoothing = shared_data['median_smoothing']
     return render_template('index.html', integration_minutes=integration_minutes, 
                                          sample_rate=sample_rate, 
                                          default_frequency=default_frequency, 
-                                         default_bias_tee=default_bias_tee)
+                                         default_bias_tee=default_bias_tee,
+                                         default_remove_peaks=default_remove_peaks,
+                                         default_plot_peaks=default_plot_peaks,
+                                         default_median_smoothing=default_median_smoothing)
 
 # WebSocket handler to send random data
 @socketio.on('connect')
@@ -368,9 +449,23 @@ def handle_connect():
                 # Non-blocking attempt to get data
                 y_data = plot_queue.get_nowait()
                 x_data = np.linspace(-shared_data['sdr_sample_rate'] / (2 * decimation_factor), shared_data['sdr_sample_rate'] / (2 * decimation_factor), nperseg)
+                peaks_indices = peaks_x_queue.get_nowait()  # Get the indices first
+                
+                peaks_x = np.array([])
+                if len(peaks_indices) > 0:
+                    peaks_x = x_data[peaks_indices]
+                    
+                peaks_y = peaks_y_queue.get_nowait()
+                
+                
+                #Print peaks_x and peaks_y for debugging
+                #print(f"Peaks X: {peaks_x}")
+                #print(f"Peaks Y: {peaks_y}")
                 
                 socketio.emit('spectrum_data', {'x_data': x_data.tolist(), 
                                                 'y_data': y_data.tolist(), 
+                                                'peaks_x': peaks_x.tolist(),
+                                                'peaks_y': peaks_y.tolist(),
                                                 'dark_frame_status': shared_data['dark_frame_status'],
                                                 'center_freq': shared_data['sdr_frequency']}) 
             except queue.Empty:
@@ -395,7 +490,7 @@ def handle_button_click(message):
     emit('server_response', {'response': 'Button click received!'})
     
 # WebSocket handler for text input submission
-@socketio.on('buffer_settings')
+@socketio.on('program_settings')
 def handle_input_text(message):
     try:
         # Check if 'integration_minutes' is in the message and process it
@@ -403,8 +498,19 @@ def handle_input_text(message):
             integration_minutes = float(message.get('integration_minutes'))
             shared_data['integration_minutes'] = integration_minutes
             print(f"User input (integration_minutes) received: {integration_minutes}")
+            shared_data['process_settings_state'] = "update_cumulate_buffer"
             
-        shared_data['process_settings_state'] = "update_cumulate_buffer"
+        if 'remove_peaks_enabled' in message:
+            shared_data['remove_peaks'] = bool(message.get('remove_peaks_enabled'))
+            
+        if 'plot_peaks_enabled' in message:
+            shared_data['plot_peaks'] = bool(message.get('plot_peaks_enabled'))
+            
+        if 'median_smoothing_enabled' in message:
+            shared_data['median_smoothing'] = bool(message.get('median_smoothing_enabled'))
+            print(shared_data['median_smoothing'])
+            
+            
         
         # Respond back to the client
         emit('server_response', {'response': 'Input received and processed'})

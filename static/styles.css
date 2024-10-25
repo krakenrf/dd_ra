@@ -6,7 +6,7 @@ body {
     font-family: Arial, sans-serif;
 }
 
-/* Sidebar takes 1/10th of the screen */
+/* Sidebar takes 1/10th of the screen on larger screens */
 .sidebar {
     width: 10%;
     background-color: #f4f4f4;
@@ -15,14 +15,16 @@ body {
     display: flex;
     flex-direction: column;
     gap: 15px; /* Adds spacing between elements */
+    box-sizing: border-box;
 }
 
 /* Style for the content area (graphs) */
 .content {
-    width: 80%;
+    width: 90%;
     padding: 20px;
     display: flex;
     flex-direction: column;
+    box-sizing: border-box;
 }
 
 /* Buttons and controls styling */
@@ -50,115 +52,91 @@ body {
 /* Style for the graph and heatmap containers */
 #graph, #heatmap {
     margin-bottom: 20px;
-}
-
-/* Text input styling */
-.sidebar input[type="number"],
-.sidebar input[type="text"] {
     width: 100%;
-    padding: 8px;
-    margin-bottom: 10px;
-    border: 1px solid #ccc;
-    border-radius: 4px;
 }
 
-/* Style for the dropdown (select box) */
+/* Make text inputs, sliders, and buttons adjust their sizes */
+.sidebar input[type="number"],
+.sidebar input[type="text"],
 .sidebar select {
     width: 100%;
     padding: 8px;
     margin-bottom: 10px;
     border: 1px solid #ccc;
     border-radius: 4px;
-    background-color: #f8f8f8;
-    font-size: 16px;
-    color: #333;
-    cursor: pointer;
 }
 
-.sidebar select:focus {
-    outline: none;
-    border-color: #007BFF;
-    box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
-}
-
-.sidebar select option {
-    padding: 10px;
-    background-color: white;
-    color: #333;
-}
-
-/* Style for the checkbox container */
-.checkbox-container {
+/* Responsive container for the frequency input and button */
+.frequency-container {
     display: flex;
-    align-items: center;
-    margin-bottom: 10px;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
 }
 
-/* Style for the checkbox label */
-.checkbox-label {
-    margin-right: 10px;
-    font-size: 16px;
-    color: #333;
-    font-weight: bold;
+/* Adjust for smaller screens */
+@media (max-width: 768px) {
+    /* Sidebar takes more space on smaller screens */
+    .sidebar {
+        width: 30%;
+    }
+
+    /* Content adjusts to the remaining space */
+    .content {
+        width: 70%;
+    }
+
+    /* For really small screens, the sidebar and content become vertical */
+    @media (max-width: 480px) {
+        body {
+            flex-direction: column;
+        }
+
+        .sidebar {
+            width: 100%;
+            flex-direction: row;
+            flex-wrap: wrap;
+            justify-content: space-around;
+        }
+
+        .content {
+            width: 100%;
+        }
+    }
 }
 
-/* Custom styling for the checkbox */
-.styled-checkbox {
-    width: 20px;
-    height: 20px;
-    background-color: #f4f4f4;
-    border-radius: 3px;
-    border: 2px solid #007BFF;
-    cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    outline: none;
-    transition: background-color 0.3s ease, border-color 0.3s ease;
-}
-
-.styled-checkbox:checked {
-    background-color: #007BFF;
-    border-color: #0056b3;
-}
-
-.styled-checkbox:hover {
-    border-color: #0056b3;
-}
-
-/* Gain slider and output on the same line, taking full width of the sidebar */
+/* Gain slider and output styling */
 .gain-container {
     display: flex;
     align-items: center;
     gap: 10px;
-    width: 100%;  /* Make sure it spans the entire width */
+    width: 100%;
 }
 
 .gain-container input[type="range"] {
-    flex-grow: 1;  /* Let the slider grow to take up remaining space */
+    flex-grow: 1;
 }
 
 .gain-container output {
-    width: 40px;  /* Fixed width for the output number */
-    text-align: right;  /* Align the number to the right */
+    width: 40px;
+    text-align: right;
 }
 
-/* Bias Tee label and checkbox on the same line */
+/* Bias Tee label and checkbox */
 .checkbox-container {
     display: flex;
     align-items: center;
-    gap: 10px; /* Add space between the checkbox and the label */
+    gap: 10px;
     margin-bottom: 10px;
 }
 
-/* Style for the checkbox label */
 .checkbox-label {
     font-size: 16px;
     color: #333;
     font-weight: bold;
 }
 
-/* Custom styling for the checkbox */
+/* Custom checkbox styling */
 .styled-checkbox {
     width: 20px;
     height: 20px;
@@ -167,8 +145,6 @@ body {
     border: 2px solid #007BFF;
     cursor: pointer;
     appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
     outline: none;
     transition: background-color 0.3s ease, border-color 0.3s ease;
 }
@@ -178,42 +154,27 @@ body {
     border-color: #0056b3;
 }
 
-.styled-checkbox:hover {
-    border-color: #0056b3;
-}
-    
-/* Container to align the input and button properly */
-.frequency-container {
-    display: flex;
-    align-items: flex-start; /* Align the items at the top */
-    gap: 10px; /* Add spacing between the input and button */
-    width: 100%;
-}
-
-/* Input style */
+/* Responsive design for frequency input and button */
 .frequency-container input[type="number"] {
     flex-grow: 1;
-    padding: 6px 8px; /* Adjust padding for a slimmer input */
-    border: 1px solid #ccc;
+    padding: 6px 8px;
     border-radius: 4px;
-    font-size: 16px;
-    height: 36px; /* Ensure a consistent height for the input */
-    box-sizing: border-box; /* Ensure padding doesn't affect height */
+    height: 36px;
+    box-sizing: border-box;
 }
 
-/* Button style */
 #reset-frequency-button {
     background-color: #007BFF;
     color: white;
     border: none;
     border-radius: 5px;
-    width: 36px; /* Adjust button width */
-    height: 36px; /* Ensure the button height matches the input */
+    width: 36px;
+    height: 36px;
     cursor: pointer;
     display: flex;
     justify-content: center;
-    align-items: center; /* Vertically and horizontally center the 'H' */
-    padding: 0; /* Remove padding inside the button */
+    align-items: center;
+    padding: 0;
 }
 
 #reset-frequency-button:hover {
