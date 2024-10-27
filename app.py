@@ -66,14 +66,14 @@ nperseg = num_samples // decimation_factor  # Set nperseg to any value you want
 
 # Define FFT size for zero-padding to increase resolution
 fft_size = num_samples * 1  # Zero-pad to increase FFT resolution
-x_data = np.linspace(-sdr.sample_rate / (2 * decimation_factor), sdr.sample_rate / (2 * decimation_factor), nperseg)
+x_data = np.linspace(-sdr.sample_rate / (2 * decimation_factor), sdr.sample_rate / (2 * decimation_factor), fft_size)
 
 # Multiprocessing queue to hold incoming samples for processing
 sample_queue = mp.Queue(maxsize=1024)
-matrix_sample_queue = mp.Queue(maxsize=8)
-plot_queue = mp.Queue(maxsize=4)  # Queue to send data to the plotter
-peaks_x_queue = mp.Queue(maxsize=4)  # Queue to send data to the plotter
-peaks_y_queue = mp.Queue(maxsize=4)  # Queue to send data to the plotter
+matrix_sample_queue = mp.Queue(maxsize=32)
+plot_queue = mp.Queue(maxsize=12)  # Queue to send data to the plotter
+peaks_x_queue = mp.Queue(maxsize=12)  # Queue to send data to the plotter
+peaks_y_queue = mp.Queue(maxsize=12)  # Queue to send data to the plotter
 
 # Callback function to collect the samples
 def callback(samples, context):
@@ -95,11 +95,8 @@ def process_sample_matrix(sample_queue):
 
         # Process samples in batches
         for _ in range(num_intermediate_avg):
-            # Try to collect samples from the queue
-            #try:
+            # Collect samples from the queue
             samples = sample_queue.get()
-            #except queue.Empty:
-            #    continue
 
             # Append samples to the list for later matrix processing
             samples_list.append(samples)
@@ -140,25 +137,45 @@ def process_samples(matrix_sample_queue):
         start_time = time.time()
         samples_matrix = matrix_sample_queue.get()
         
+
+        
          # Apply decimation to the entire matrix if needed
         if decimation_factor > 1:
             decimated_matrix = decimate(samples_matrix, decimation_factor, axis=0, ftype='fir')  # Decimate along the sample axis (columns)
         else:
             decimated_matrix = samples_matrix
 
+
+        #TODO: Change to FFT as this makes more sense
         # Apply Welch's method to the entire matrix
         # Welch will compute the PSD for each row (each set of samples)
-        f, Pxx_matrix = welch(
-            decimated_matrix, 
-            fs=shared_data['sdr_sample_rate'] / decimation_factor, 
-            nperseg=nperseg, 
-            axis=1,  # Apply Welch along the sample axis (columns)
-            return_onesided=False, 
-            scaling='spectrum'
-        )
+        # f, Pxx_matrix = welch(
+            # decimated_matrix, 
+            # fs=shared_data['sdr_sample_rate'] / decimation_factor, 
+            # nperseg=nperseg, 
+            # axis=1,  # Apply Welch along the sample axis (columns)
+            # return_onesided=False, 
+            # scaling='spectrum'
+        # )
 
-        # Shift PSD results for centered frequency representation
-        Pxx_matrix = np.fft.fftshift(Pxx_matrix, axes=1)
+        # # Shift PSD results for centered frequency representation
+        # Pxx_matrix = np.fft.fftshift(Pxx_matrix, axes=1)
+        
+        # Define sample rate after decimation
+        sample_rate = shared_data['sdr_sample_rate'] / decimation_factor
+
+        # Perform FFT along each row with specified fft_size, allowing automatic zero-padding or truncation
+        fft_matrix = np.fft.fft(decimated_matrix, n=fft_size, axis=1)
+
+        # Compute Power Spectral Density (PSD)
+        Pxx_matrix = (np.abs(fft_matrix) ** 2) / fft_size
+
+        # Frequency array for plotting
+        f = np.fft.fftfreq(fft_size, d=1/sample_rate)
+
+        # Shift frequencies and PSD results for a centered frequency representation
+        f = np.fft.fftshift(f)
+        Pxx_matrix = np.fft.fftshift(Pxx_matrix, axes=1)        
 
         # Initialize intermediate buffer for accumulation, if it's not already initialized
         #if intermediate_buffer is None:
@@ -174,7 +191,7 @@ def process_samples(matrix_sample_queue):
 
         #######################################################################
         # Fix the DC spike problem with welch
-        dc_index = nperseg // 2 #np.argmin(np.abs(f))  # The index where frequency is closest to 0
+        dc_index = fft_size // 2 #np.argmin(np.abs(f))  # The index where frequency is closest to 0
         
         interp_dist = 3;
         sample_dist = 5;
@@ -448,7 +465,7 @@ def handle_connect():
             try:
                 # Non-blocking attempt to get data
                 y_data = plot_queue.get_nowait()
-                x_data = np.linspace(-shared_data['sdr_sample_rate'] / (2 * decimation_factor), shared_data['sdr_sample_rate'] / (2 * decimation_factor), nperseg)
+                x_data = np.linspace(-shared_data['sdr_sample_rate'] / (2 * decimation_factor), shared_data['sdr_sample_rate'] / (2 * decimation_factor), fft_size)
                 peaks_indices = peaks_x_queue.get_nowait()  # Get the indices first
                 
                 peaks_x = np.array([])
