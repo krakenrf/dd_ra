@@ -6,24 +6,25 @@ body {
     font-family: Arial, sans-serif;
 }
 
-/* Sidebar takes 1/10th of the screen on larger screens */
+/* Sidebar with fixed width on larger screens */
 .sidebar {
-    width: 10%;
+    width: 250px; /* Fixed width on desktop */
     background-color: #f4f4f4;
     padding: 20px;
     box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
     display: flex;
     flex-direction: column;
-    gap: 15px; /* Adds spacing between elements */
+    gap: 15px;
     box-sizing: border-box;
 }
 
-/* Style for the content area (graphs) */
+/* Content adjusts to the remaining space */
 .content {
-    width: 90%;
-    padding: 20px;
+    flex-grow: 1;
+    padding: 10px;
     display: flex;
     flex-direction: column;
+    gap: 0; /* Remove any gap between rows */
     box-sizing: border-box;
 }
 
@@ -49,13 +50,16 @@ body {
     color: #333;
 }
 
-/* Style for the graph and heatmap containers */
-#graph, #heatmap {
-    margin-bottom: 20px;
+/* Style for each graph container */
+#intermediate_avg_graph, #intermediate_avg_heatmap, #graph, #heatmap {
     width: 100%;
+    height: 400px;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
 }
 
-/* Make text inputs, sliders, and buttons adjust their sizes */
+/* Adjust text inputs, sliders, and buttons */
 .sidebar input[type="number"],
 .sidebar input[type="text"],
 .sidebar select {
@@ -66,43 +70,12 @@ body {
     border-radius: 4px;
 }
 
-/* Responsive container for the frequency input and button */
+/* Responsive container for frequency input and button */
 .frequency-container {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: 10px;
     width: 100%;
-}
-
-/* Adjust for smaller screens */
-@media (max-width: 768px) {
-    /* Sidebar takes more space on smaller screens */
-    .sidebar {
-        width: 30%;
-    }
-
-    /* Content adjusts to the remaining space */
-    .content {
-        width: 70%;
-    }
-
-    /* For really small screens, the sidebar and content become vertical */
-    @media (max-width: 480px) {
-        body {
-            flex-direction: column;
-        }
-
-        .sidebar {
-            width: 100%;
-            flex-direction: row;
-            flex-wrap: wrap;
-            justify-content: space-around;
-        }
-
-        .content {
-            width: 100%;
-        }
-    }
 }
 
 /* Gain slider and output styling */
@@ -114,12 +87,13 @@ body {
 }
 
 .gain-container input[type="range"] {
-    flex-grow: 1;
+    flex-grow: 1; /* Slider takes up available space */
 }
 
 .gain-container output {
-    width: 40px;
+    width: auto;
     text-align: right;
+    min-width: 40px; /* Ensures the output is a fixed size next to the slider */
 }
 
 /* Bias Tee label and checkbox */
@@ -128,17 +102,12 @@ body {
     align-items: center;
     gap: 10px;
     margin-bottom: 10px;
-}
-
-.checkbox-label {
-    font-size: 16px;
-    color: #333;
-    font-weight: bold;
+    width: auto;
 }
 
 /* Custom checkbox styling */
 .styled-checkbox {
-    width: 20px;
+    width: 20px; /* Default width on desktop */
     height: 20px;
     background-color: #f4f4f4;
     border-radius: 3px;
@@ -179,4 +148,104 @@ body {
 
 #reset-frequency-button:hover {
     background-color: #0056b3;
+}
+
+.content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Arrange graphs side by side on desktop */
+.graph-row {
+    display: flex;
+    width: 100%;
+    gap: 5px;
+    justify-content: center;
+}
+
+.graph-row > div {
+    flex: 1;
+    width: 50%;
+    height: 500px;
+}
+
+/* Mobile adjustments for sidebar layout */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 100%;
+        padding: 15px;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    /* Ensure all elements are stacked vertically in mobile view */
+    .sidebar label, .sidebar input, .sidebar select, .frequency-container, .gain-container, .checkbox-container {
+        width: 100%;
+    }
+
+    /* Keep frequency container aligned with button on the right */
+    .frequency-container {
+        flex-direction: row;
+        align-items: center;
+    }
+
+    /* Stack gain slider and output horizontally with output on the right */
+    .gain-container {
+        flex-direction: row;
+        align-items: center;
+    }
+
+    /* Adjust checkbox container to avoid stretching on mobile */
+    .checkbox-container {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        width: auto; /* Avoid stretching */
+        justify-content: flex-start;
+    }
+
+    /* Reduce checkbox size on mobile */
+    .styled-checkbox {
+        width: 16px; /* Smaller checkbox width for mobile */
+        height: 16px; /* Smaller checkbox height for mobile */
+    }
+
+    /* Ensure content takes full width */
+    .content {
+        width: 100%;
+    }
+
+    /* Stack graphs vertically with appropriate height */
+    #intermediate_avg_graph,
+    #intermediate_avg_heatmap,
+    #graph,
+    #heatmap {
+        height: 350px;
+        width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .content {
+        width: 100%;
+    }
+
+    #intermediate_avg_graph,
+    #intermediate_avg_heatmap,
+    #graph,
+    #heatmap {
+        height: 300px;
+    }
 }

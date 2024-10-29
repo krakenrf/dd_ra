@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spectrum Data Viewer</title>
+    <title>Discovery Dish Hydrogen Line</title>
     <!-- Link to the external stylesheet -->
     <link rel="stylesheet" href="/static/styles.css">
     <!-- Load Plotly from local static files -->
@@ -49,17 +49,27 @@
         <div class="checkbox-container">
             <label for="remove-peaks-checkbox" class="checkbox-label">Remove Peaks</label>
             <input type="checkbox" id="remove-peaks-checkbox" class="styled-checkbox" {% if default_remove_peaks %}checked{% endif %}>
-        </div>
+        </div>     
+        
+        <label for="input-peaks_prominence">Remove Peaks Prominence</label>
+        <input type="number" id="input-peaks_prominence" step="0.01" placeholder="Remove Peaks Prominence" value="{{ peaks_prominence }}">        
         
         <div class="checkbox-container">
             <label for="plot-peaks-checkbox" class="checkbox-label">Plot Peaks</label>
             <input type="checkbox" id="plot-peaks-checkbox" class="styled-checkbox" {% if default_plot_peaks %}checked{% endif %}>
         </div>
-        
+
         <div class="checkbox-container">
-            <label for="median-smoothing-checkbox" class="checkbox-label">Median Smoothing</label>
-            <input type="checkbox" id="median-smoothing-checkbox" class="styled-checkbox" {% if default_median_smoothing %}checked{% endif %}>
-        </div>        
+            <label for="bilateral_filter-checkbox" class="checkbox-label">Bilateral Smoothing</label>
+            <input type="checkbox" id="bilateral_filter-checkbox" class="styled-checkbox" {% if default_bilateral_filter %}checked{% endif %}>
+        </div>       
+
+        <label for="input-sigma_spatial">Sigma Spatial</label>
+        <input type="number" id="input-sigma_spatial" step="0.01" placeholder="Sigma Spatial" value="{{ sigma_spatial }}">
+        
+        <label for="input-sigma_intensity">Sigma Intensity</label>
+        <input type="number" id="input-sigma_intensity" step="0.01" placeholder="Sigma Intensity" value="{{ sigma_intensity }}">         
+        
 
 
         <br/>
@@ -73,15 +83,33 @@
 
     <!-- Content area for graphs -->
     <div class="content">
-        <h1>Spectrum Data Viewer</h1>
-        <div id="graph"></div>
-        <div id="heatmap"></div>
+        <h1>Discovery Dish Hydrogen Line</h1>
+        <!-- Row for intermediate_avg_graph and graph side by side -->
+        <div class="graph-row">
+            <div id="intermediate_avg_graph"></div>
+            <div id="graph"></div>
+        </div>
+        
+        <!-- Row for intermediate_avg_heatmap and heatmap side by side -->
+        <div class="graph-row">
+            <div id="intermediate_avg_heatmap"></div>
+            <div id="heatmap"></div>
+        </div>
+        
+                <!-- Row for intermediate_avg_heatmap and heatmap side by side -->
+        <div class="graph-row">
+            <div id="sky_map"></div>
+        </div>
+
     </div>
+    
+    
+
 
     <script>
     
         // Initialize the scatter plot only once
-        Plotly.newPlot('graph', [{
+        Plotly.newPlot('intermediate_avg_graph', [{
             x: [],
             y: [],
             mode: 'lines',  // or 'markers' or 'lines+markers'
@@ -98,12 +126,45 @@
             name: 'Peaks'  // Label for the peaks trace
         }], {
             xaxis: { 
-                title: 'Frequency', 
+                title: '', 
+                showticklabels: true,
                 tickformat: '~s',  // Use SI units with automatic scaling (this will show G for gigahertz)
                 exponentformat: 'none'  // Avoid scientific notation
             },
-            yaxis: { title: 'Amplitude' },
-        });
+            yaxis: { title: '', showticklabels: true },
+            margin: { l: 25, r: 10, t: 10, b: 30 }, // Reduced margin around the graph
+            showlegend: false            // Hide the legend on this graph
+        }, { responsive: true });    
+    
+    
+    
+        // Initialize the scatter plot only once
+         Plotly.newPlot('graph', [{
+            x: [],
+            y: [],
+            mode: 'lines',  // or 'markers' or 'lines+markers'
+            type: 'scatter'
+        }, {
+            x: [],  // Empty data for peaks initially
+            y: [],
+            mode: 'markers',  // Peaks will be plotted as markers
+            marker: {
+                size: 6,  // Small circles for the peaks
+                symbol: 'circle',
+                color: 'red'
+            },
+            name: 'Peaks'  // Label for the peaks trace
+        }], {
+            xaxis: { 
+                title: '', 
+                showticklabels: true,
+                tickformat: '~s',  // Use SI units with automatic scaling (this will show G for gigahertz)
+                exponentformat: 'none'  // Avoid scientific notation
+            },
+            yaxis: { title: '', showticklabels: true },
+            margin: { l: 25, r: 10, t: 10, b: 30 },
+            showlegend: false  // Hide the legend on this graph
+        }, { responsive: true });
         
         // Initialize a buffer for z_data (waterfall buffer)
         const buffer_size = 100;  // Number of rows in the heatmap (i.e., time slices)
@@ -118,17 +179,87 @@
             showscale: false
         }], {
             xaxis: { 
-                title: 'Frequency', 
+                title: '',
+                showticklabels: true,                
                 tickformat: '~s',  // Use SI units with automatic scaling (this will show G for gigahertz)
                 exponentformat: 'none'  // Avoid scientific notation
             },
-            yaxis: { title: 'Time' },
+            yaxis: { title: '', showticklabels: true },
+            margin: { l: 25, r: 10, t: 10, b: 30 }
 
-        });    
-    
-    
+        }, { responsive: true });    
+        
+        let int_avg_z_data = [];
+
+        // Initialize the heatmap plot with an empty z_data
+        Plotly.newPlot('intermediate_avg_heatmap', [{
+            z: int_avg_z_data,
+            x: [],
+            type: 'heatmap',
+            colorscale: 'Viridis',
+            showscale: false
+        }], {
+            xaxis: { 
+                title: '', 
+                showticklabels: true,
+                tickformat: '~s',  // Use SI units with automatic scaling (this will show G for gigahertz)
+                exponentformat: 'none'  // Avoid scientific notation
+            },
+            yaxis: { title: '', showticklabels: true, },
+            margin: { l: 25, r: 10, t: 10, b: 30 }
+
+        }, { responsive: true });           
+        
+
         // Connect to WebSocket (Socket.IO running locally)
         const socket = io();
+        
+        socket.on('star_data', function(data) {
+            const stars_x = data.stars.x;
+            const stars_y = data.stars.y;
+            const stars_sizes = data.stars.sizes;
+
+            //console.log("Star: ", data.x);
+
+            Plotly.newPlot('sky_map', [{
+                x: stars_x,
+                y: stars_y,
+                mode: 'markers',
+                marker: {
+                    size: stars_sizes,
+                    color: 'white'
+                }
+            }], {
+                plot_bgcolor: 'black',
+                xaxis: {
+                    showgrid: false,
+                    zeroline: false,
+                    range: [-1, 1],  // Limiting x-axis for circular plot appearance
+                    scaleanchor: "y", // Maintain circular shape
+                    scaleratio: 1
+                },
+                yaxis: {
+                    showgrid: false,
+                    zeroline: false,
+                    range: [-1, 1],  // Limiting y-axis for circular plot appearance
+                    scaleanchor: "x",
+                    scaleratio: 1
+                },
+                shapes: [{
+                    type: 'circle',
+                    xref: 'x',
+                    yref: 'y',
+                    x0: -1,
+                    y0: -1,
+                    x1: 1,
+                    y1: 1,
+                    line: {
+                        color: 'white'
+                    }
+                }],
+                title: "Interactive Sky Map"
+            });
+        });
 
         // Handle WebSocket messages with spectrum data
         socket.on('spectrum_data', function(data) {
@@ -137,29 +268,27 @@
             // Add center_freq to each value in x_data to center around the frequency
             const x = data.x_data.map(value => value + center_freq);
             const y = data.y_data;
+            const int_avg_y = data.int_avg_y_data;
             const dark_frame_status = data.dark_frame_status;
             
             
             const peaks_x = data.peaks_x.map(value => value + center_freq); // x-values of the peaks
             const peaks_y = data.peaks_y; // y-values (amplitudes) of the peaks
-
-
-            // Update the scatter plot
-            const scatterData = [{
-                x: x,
-                y: y,
-                type: 'scatter'
-            }];
-
-            // Update the existing scatter plot with new data (replace the old data)
-            Plotly.restyle('graph', {
-                x: [x],  // New x data
-                y: [y]   // New y data
-            }, [0]);  // [0] is the trace index to update
             
+
+            
+            
+            
+            // Update the existing scatter plot with new data (replace the old data)
+            Plotly.restyle('intermediate_avg_graph', {
+                x: [x],  // New x data
+                y: [int_avg_y]   // New y data
+            }, [0]);  // [0] is the trace index to update     
+
+
             // Use Plotly.restyle() instead of adding new traces to avoid duplication
             if (peaks_x.length > 0 && peaks_y.length > 0) {
-                Plotly.restyle('graph', {
+                Plotly.restyle('intermediate_avg_graph', {
                     x: [peaks_x],  // Frequencies at the peaks
                     y: [peaks_y],  // Amplitudes at the peaks
                     marker: {
@@ -173,16 +302,50 @@
             else
             {
                 // Hide the trace when there are no peaks
-                Plotly.restyle('graph', {
+                Plotly.restyle('intermediate_avg_graph', {
                     visible: false  // Hide the trace
                 }, [1]);  // [1] is the trace index for the peaks
-            }
+            }            
             
             
             // Dynamically update the X-axis range based on the new data
-            Plotly.relayout('graph', {
-                'xaxis.range': [Math.min(...x), Math.max(...x)]  // Adjust x-axis to fit the new data
-            });
+            //Plotly.relayout('intermediate_avg_graph', {
+            //    'xaxis.range': [Math.min(...x), Math.max(...x)]  // Set the min and max for the y-axis                
+            //});
+            
+
+            // Update the existing scatter plot with new data (replace the old data)
+            Plotly.restyle('graph', {
+                x: [x],  // New x data
+                y: [y]   // New y data
+            }, [0]);  // [0] is the trace index to update
+            
+            // Use Plotly.restyle() instead of adding new traces to avoid duplication
+            //if (peaks_x.length > 0 && peaks_y.length > 0) {
+            //    Plotly.restyle('graph', {
+            //        x: [peaks_x],  // Frequencies at the peaks
+            //        y: [peaks_y],  // Amplitudes at the peaks
+            //        marker: {
+            //            size: 6,  // Small circles
+            //            symbol: 'circle',
+            //            color: 'red'
+            //        },
+            //        visible: true
+            //    }, [1]);  // [1] is the trace index for the peaks (assuming it's the second trace)
+            //}
+            //else
+            //{
+            //    // Hide the trace when there are no peaks
+            //    Plotly.restyle('graph', {
+            //        visible: false  // Hide the trace
+            //    }, [1]);  // [1] is the trace index for the peaks
+            //}
+            
+            
+            // Dynamically update the X-axis range based on the new data
+            //Plotly.relayout('graph', {
+            //    'xaxis.range': [Math.min(...x), Math.max(...x)]  // Adjust x-axis to fit the new data
+            //});
             
             
             // Dynamically initialize z_data with -80 if it's empty (first time the data is received)
@@ -206,9 +369,42 @@
             });
             
             // Dynamically update the X-axis range of the heatmap based on the new data
-            Plotly.relayout('heatmap', {
-                'xaxis.range': [Math.min(...x), Math.max(...x)]  // Adjust x-axis to fit the new data
+            //Plotly.relayout('heatmap', {
+            //    'xaxis.range': [Math.min(...x), Math.max(...x)]  // Adjust x-axis to fit the new data
+            //});
+            
+            
+            
+            
+            // Dynamically initialize z_data with -80 if it's empty (first time the data is received)
+            if (int_avg_z_data.length === 0) {
+                const data_points_per_row = int_avg_y.length;  // Dynamically get the number of data points
+                int_avg_z_data = Array(buffer_size).fill().map(() => Array(data_points_per_row).fill(-80));
+            }
+        
+            // Add the new row to z_data (waterfall buffer)
+            int_avg_z_data.push(int_avg_y);
+            
+            // Ensure the buffer doesn't exceed the buffer size
+            if (int_avg_z_data.length > buffer_size) {
+                int_avg_z_data.shift();  // Remove the oldest row if buffer exceeds size
+            }
+
+            // Update the heatmap plot with the new z_data (waterfall effect)
+            Plotly.update('intermediate_avg_heatmap', {
+                z: [int_avg_z_data],
+                x: [x]
             });
+            
+            // Dynamically update the X-axis range of the heatmap based on the new data
+            //Plotly.relayout('intermediate_avg_heatmap', {
+            //    'xaxis.range': [Math.min(...x), Math.max(...x)]  // Adjust x-axis to fit the new data
+            //});            
+            
+            
+            
+            
+            
 
             // Update the dark frame text in the div
             document.getElementById("dark-frame-text").textContent = `Dark Frame Status: ${dark_frame_status}`;
@@ -268,6 +464,22 @@
             socket.emit('program_settings', payload);
         });
         
+        
+        document.getElementById('input-peaks_prominence').addEventListener('input', function() {
+            let payload = { peaks_prominence: parseFloat(this.value) };
+            socket.emit('program_settings', payload);
+        });
+        
+        document.getElementById('input-sigma_spatial').addEventListener('input', function() {
+            let payload = { sigma_spatial: parseFloat(this.value) };
+            socket.emit('program_settings', payload);
+        });
+        
+        document.getElementById('input-sigma_intensity').addEventListener('input', function() {
+            let payload = { sigma_intensity: parseFloat(this.value) };
+            socket.emit('program_settings', payload);
+        });        
+        
         // Handle the bias tee checkbox for real-time sending on change
         document.getElementById('plot-peaks-checkbox').addEventListener('change', function() {
             let payload = { plot_peaks_enabled: this.checked };
@@ -275,17 +487,12 @@
         });
         
         // Handle the bias tee checkbox for real-time sending on change
-        document.getElementById('median-smoothing-checkbox').addEventListener('change', function() {
-            let payload = { median_smoothing_enabled: this.checked };
+        document.getElementById('bilateral_filter-checkbox').addEventListener('change', function() {
+            let payload = { bilateral_filter_enabled: this.checked };
             socket.emit('program_settings', payload);
         });        
 
-        
-        window.addEventListener('resize', function() {
-            Plotly.Plots.resize('graph');
-            Plotly.Plots.resize('heatmap');
-        });
-        
+
         // Handle input text box for submission on Enter or blur
         //const input_integration_time = document.getElementById('input-integration_time');
 
